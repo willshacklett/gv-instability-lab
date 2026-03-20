@@ -42,7 +42,7 @@ from src.datasets import load_series_from_csv
 # ----------------------------
 
 DATA_PATH = "data/real/sample.csv"   # <-- change this
-VALUE_COLUMN = "close"                  # or "close", "value", etc.
+VALUE_COLUMN = "value"                  # or "close", "value", etc.
 
 NORMALIZE = True
 START_INDEX = None
