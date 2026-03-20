@@ -31,20 +31,22 @@ def generate_counterfactual_pair(n_steps=140, noise_std=0.18, seed=42):
 
     early = shared + pressure
 
-    # Failure branch:
-    # Make it diverge sooner and more clearly so irreversible buildup shows up earlier
+    # -----------------------------
+    # FAILURE BRANCH (pure escalation)
+    # -----------------------------
     failure = early.copy()
     post = np.arange(n_steps - half, dtype=float)
+
     failure[half:] = (
         failure[half - 1]
-        + 0.22 * post
-        + 0.020 * (post ** 2)
-        + 0.0015 * (post ** 3)
-        + 0.10 * np.sin(0.18 * post)
+        + 0.25 * post
+        + 0.030 * (post ** 2)
+        + 0.0025 * (post ** 3)
     )
 
-    # Recovery branch:
-    # Similar initial feel, but it cools off and stabilizes
+    # -----------------------------
+    # RECOVERY BRANCH (relaxation)
+    # -----------------------------
     recovery = early.copy()
     recovery[half:] = (
         recovery[half - 1]
@@ -54,7 +56,7 @@ def generate_counterfactual_pair(n_steps=140, noise_std=0.18, seed=42):
         + 0.18 * np.sin(0.22 * post)
     )
 
-    # Add observational noise
+    # Add noise
     failure += rng.normal(0, noise_std, n_steps)
     recovery += rng.normal(0, noise_std, n_steps)
 
