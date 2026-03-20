@@ -119,7 +119,6 @@ class GVDetector:
         mad = np.median(np.abs(x - med)) + self.eps
         return (x - med) / (1.4826 * mad + self.eps)
 
-    # 🔥 UPDATED CORE FUNCTION
     def _compute_potential(self, variance, slope, curvature):
         z_var = self._robust_z(variance)
         z_slope = self._robust_z(slope)
@@ -137,7 +136,6 @@ class GVDetector:
             + self.alpha_curve * pos_curve
         )
 
-        # 🔥 KEY FIX: softer suppression so early signals survive
         return np.maximum(raw - 0.3, 0.0)
 
     def _accumulate(self, potential):
@@ -153,7 +151,8 @@ class GVDetector:
         if not np.any(above):
             return None
 
-        baseline = np.median(potential) + 0.75 * np.std(potential)
+        # 🔥 TIGHTENED BASELINE
+        baseline = np.median(potential) + 1.25 * np.std(potential)
 
         for i in range(len(cumulative)):
             if not above[i]:
