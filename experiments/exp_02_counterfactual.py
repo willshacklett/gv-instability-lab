@@ -1,17 +1,5 @@
 """
 exp_02_counterfactual.py
-
-Counterfactual instability experiment.
-
-Goal:
-- Build two paired systems with similar early buildup
-- One system destabilizes
-- One system recovers / stabilizes
-- Run GV and baselines on both
-- Compare whether GV can distinguish collapse vs recovery
-
-Run:
-    python experiments/exp_02_counterfactual.py
 """
 
 from __future__ import annotations
@@ -32,247 +20,83 @@ from src.gv_detector import GVDetector
 from src.baseline_detectors import run_all_baselines
 
 
-def generate_counterfactual_pair(
-    n_steps: int = 140,
-    noise_std: float = 0.18,
-    seed: int = 42,
-) -> tuple[np.ndarray, np.ndarray]:
+def generate_counterfactual_pair(n_steps=140, noise_std=0.18, seed=42):
     rng = np.random.default_rng(seed)
-
     t = np.arange(n_steps, dtype=float)
 
-    shared = (
-        0.015 * t
-        + 0.0009 * (t ** 2)
-        + 0.20 * np.sin(0.22 * t)
-    )
+    shared = 0.015 * t + 0.0009 * (t ** 2) + 0.20 * np.sin(0.22 * t)
 
-    pressure = np.zeros(n_steps, dtype=float)
+    pressure = np.zeros(n_steps)
     half = n_steps // 2
-    pressure[:half] = np.linspace(0.0, 2.8, half)
+    pressure[:half] = np.linspace(0, 2.8, half)
 
     early = shared + pressure
 
     failure = early.copy()
-    post_t = np.arange(n_steps - half, dtype=float)
+    post = np.arange(n_steps - half)
     failure[half:] = (
         failure[half - 1]
-        + 0.10 * post_t
-        + 0.010 * (post_t ** 2)
-        + 0.0009 * (post_t ** 3)
-        + 0.25 * np.sin(0.30 * post_t)
+        + 0.10 * post
+        + 0.010 * (post ** 2)
+        + 0.0009 * (post ** 3)
     )
 
     recovery = early.copy()
     recovery[half:] = (
         recovery[half - 1]
-        + 0.13 * post_t
-        - 0.0075 * (post_t ** 2)
-        + 0.00008 * (post_t ** 3)
-        + 0.22 * np.sin(0.28 * post_t)
+        + 0.13 * post
+        - 0.0075 * (post ** 2)
+        + 0.00008 * (post ** 3)
     )
 
-    failure += rng.normal(0.0, noise_std, size=n_steps)
-    recovery += rng.normal(0.0, noise_std, size=n_steps)
+    failure += rng.normal(0, noise_std, n_steps)
+    recovery += rng.normal(0, noise_std, n_steps)
 
     return failure, recovery
 
 
-def infer_actual_transition_index(
-    series: np.ndarray,
-    mode: str,
-    smooth_window: int = 7,
-) -> int | None:
-    if mode == "recovery":
-        return None
-
-    smoothed = moving_average(series, smooth_window)
-    slope = np.gradient(smoothed)
-    curvature = np.gradient(slope)
-
-    pos_slope = slope > np.percentile(slope, 70)
-    pos_curve = curvature > np.percentile(curvature, 70)
-
-    for i in range(8, len(series) - 8):
-        if np.all(pos_slope[i - 2:i + 2]) and np.all(pos_curve[i - 2:i + 2]):
-            return i
-
-    return int(np.argmax(smoothed))
-
-
-def moving_average(x: np.ndarray, window: int) -> np.ndarray:
-    if window <= 1:
-        return x.copy()
-    kernel = np.ones(window, dtype=float) / window
-    padded = np.pad(x, (window // 2, window - 1 - window // 2), mode="edge")
-    return np.convolve(padded, kernel, mode="valid")
-
-
-def run_one_case(
-    name: str,
-    series: np.ndarray,
-    actual_transition: int | None,
-) -> Dict[str, Any]:
-    # IMPORTANT:
-    # Use GVDetector defaults from src/gv_detector.py
-    # so tuning there actually affects this experiment.
+def run_one_case(name, series):
     detector = GVDetector()
-
-    gv_result = detector.detect(series)
+    gv = detector.detect(series)
     baselines = run_all_baselines(series)
 
     print(f"\n=== {name.upper()} ===")
     print("GV")
-    print("---------------")
-    print("flagged          :", gv_result.flagged)
-    print("predicted_index  :", gv_result.predicted_index)
-    print("classification   :", gv_result.classification)
-    print("trigger_value    :", gv_result.trigger_value)
-    print("actual_transition:", actual_transition)
+    print("------------------")
+    print("flagged          :", gv.flagged)
+    print("predicted_index  :", gv.predicted_index)
+    print("classification   :", gv.classification)
+    print("trigger_value    :", gv.trigger_value)
 
     print("\nBaselines")
-    print("---------------")
-    for method, res in baselines.items():
-        print(f"{method:10} -> {res['predicted_index']}")
+    print("------------------")
+    for k, v in baselines.items():
+        print(f"{k:10} -> {v['predicted_index']}")
 
-    return {
-        "gv": gv_result,
-        "baselines": baselines,
-        "actual_transition": actual_transition,
-    }
+    return gv
 
 
-def plot_case(
-    ax: plt.Axes,
-    title: str,
-    series: np.ndarray,
-    gv_result,
-    baselines: Dict[str, Dict[str, Any]],
-    actual_transition: int | None,
-) -> None:
-    x = np.arange(len(series))
+def run():
+    print("\n=== COUNTERFACTUAL TEST ===")
 
-    ax.plot(x, series, linewidth=2, label="signal")
+    failure, recovery = generate_counterfactual_pair()
 
-    if actual_transition is not None:
-        ax.axvline(
-            actual_transition,
-            linestyle="-.",
-            linewidth=2,
-            label="actual_transition",
-        )
+    gv_fail = run_one_case("failure_system", failure)
+    gv_rec = run_one_case("recovery_system", recovery)
 
-    if gv_result.predicted_index is not None:
-        ax.axvline(
-            gv_result.predicted_index,
-            linestyle="--",
-            linewidth=2,
-            label=f"GV ({gv_result.classification})",
-        )
-
-    for method, res in baselines.items():
-        if res["predicted_index"] is not None:
-            ax.axvline(
-                res["predicted_index"],
-                linestyle=":",
-                alpha=0.85,
-                label=method,
-            )
-
-    ax.set_title(title)
-    ax.legend(fontsize=8)
-
-
-def summarize_counterfactual(
-    failure_result: Dict[str, Any],
-    recovery_result: Dict[str, Any],
-) -> None:
-    f_gv = failure_result["gv"]
-    r_gv = recovery_result["gv"]
-
-    print("\n\nCOUNTERFACTUAL SUMMARY")
+    print("\n\nINTERPRETATION")
     print("======================")
-    print("Failure series")
-    print(f"  GV flagged        : {f_gv.flagged}")
-    print(f"  GV index          : {f_gv.predicted_index}")
-    print(f"  GV classification : {f_gv.classification}")
 
-    print("Recovery series")
-    print(f"  GV flagged        : {r_gv.flagged}")
-    print(f"  GV index          : {r_gv.predicted_index}")
-    print(f"  GV classification : {r_gv.classification}")
-
-    print("\nInterpretation")
-    if f_gv.flagged and f_gv.classification == "destabilizing":
-        print("  - GV DID classify the failure case as destabilizing.")
+    if gv_fail.flagged and gv_fail.classification == "destabilizing":
+        print("GV correctly classified failure as destabilizing")
     else:
-        print("  - GV did NOT clearly classify the failure case as destabilizing.")
+        print("GV did NOT clearly classify failure as destabilizing")
 
-    if (not r_gv.flagged) or (r_gv.classification == "recovering"):
-        print("  - GV recognizes or relaxes on the recovery case.")
+    if (not gv_rec.flagged) or (gv_rec.classification == "recovering"):
+        print("GV correctly relaxes on recovery")
     else:
-        print("  - GV may be over-triggering on recovery.")
-
-    print("\nWhat to look for")
-    print("  - Failure should usually flag earlier than baselines.")
-    print("  - Recovery should avoid a hard destabilizing classification.")
-    print("  - If recovery is flagged, it should ideally classify as recovering.")
-
-
-def run_experiment() -> None:
-    print("\n=== Counterfactual Experiment: Collapse vs Recovery ===")
-
-    failure_series, recovery_series = generate_counterfactual_pair(
-        n_steps=140,
-        noise_std=0.18,
-        seed=42,
-    )
-
-    actual_failure_transition = infer_actual_transition_index(
-        failure_series,
-        mode="failure",
-    )
-    actual_recovery_transition = infer_actual_transition_index(
-        recovery_series,
-        mode="recovery",
-    )
-
-    failure_result = run_one_case(
-        "failure_system",
-        failure_series,
-        actual_failure_transition,
-    )
-    recovery_result = run_one_case(
-        "recovery_system",
-        recovery_series,
-        actual_recovery_transition,
-    )
-
-    summarize_counterfactual(failure_result, recovery_result)
-
-    fig, axes = plt.subplots(2, 1, figsize=(13, 9), sharex=True)
-
-    plot_case(
-        axes[0],
-        "System A: Failure / Destabilization",
-        failure_series,
-        failure_result["gv"],
-        failure_result["baselines"],
-        failure_result["actual_transition"],
-    )
-
-    plot_case(
-        axes[1],
-        "System B: Recovery / Stabilization",
-        recovery_series,
-        recovery_result["gv"],
-        recovery_result["baselines"],
-        recovery_result["actual_transition"],
-    )
-
-    plt.tight_layout()
-    plt.show()
+        print("GV may be over-triggering recovery")
 
 
 if __name__ == "__main__":
-    run_experiment()
+    run()
