@@ -151,7 +151,6 @@ class GVDetector:
         if not np.any(above):
             return None
 
-        # 🔥 TIGHTENED BASELINE
         baseline = np.median(potential) + 1.25 * np.std(potential)
 
         for i in range(len(cumulative)):
@@ -164,13 +163,19 @@ class GVDetector:
 
         return int(np.where(above)[0][0])
 
+    # 🔥 NEW CLASSIFICATION LOGIC
     def _classify_post_trigger(self, cumulative, idx):
         trigger_val = cumulative[idx]
         end = min(len(cumulative), idx + self.recovery_lookahead)
         post = cumulative[idx:end]
 
-        if len(post) < 3:
+        if len(post) < 5:
             return "destabilizing"
+
+        post = np.array(post)
+
+        # trend slope
+        slope = np.polyfit(np.arange(len(post)), post, 1)[0]
 
         post_peak = float(np.max(post))
         post_last = float(post[-1])
@@ -178,16 +183,18 @@ class GVDetector:
 
         drop = (post_peak - post_min) / (post_peak + self.eps)
 
-        if drop >= self.recovery_drop_ratio and post_last < trigger_val * 0.80:
+        # TRUE recovery requires:
+        # - meaningful drop
+        # - downward trend
+        # - clearly lower end state
+        if (
+            drop >= self.recovery_drop_ratio
+            and slope < 0
+            and post_last < trigger_val * 0.80
+        ):
             return "recovering"
 
-        if post_last >= trigger_val * 0.90:
-            return "destabilizing"
-
-        if post_peak >= trigger_val * 1.05:
-            return "destabilizing"
-
-        return "recovering"
+        return "destabilizing"
 
 
 def detect_gv(series, **kwargs):
