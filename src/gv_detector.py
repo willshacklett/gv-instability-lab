@@ -34,17 +34,16 @@ class GVDetector:
         self,
         smooth_window: int = 5,
         variance_window: int = 8,
-        alpha_var: float = 0.35,
-        alpha_slope: float = 0.14,
-        alpha_curve: float = 0.65,
-        cumulative_decay: float = 0.95,
-        threshold: float = 18.0,
+        alpha_var: float = 0.45,
+        alpha_slope: float = 0.18,
+        alpha_curve: float = 0.85,
+        cumulative_decay: float = 0.97,
+        threshold: float = 12.0,
         min_persistence: int = 2,
         recovery_lookahead: int = 12,
         recovery_drop_ratio: float = 0.22,
         eps: float = 1e-9,
     ) -> None:
-
         self.smooth_window = smooth_window
         self.variance_window = variance_window
         self.alpha_var = alpha_var
@@ -76,9 +75,7 @@ class GVDetector:
 
         if flagged:
             trigger_value = float(cumulative[predicted_index])
-            classification = self._classify_post_trigger(
-                cumulative, predicted_index
-            )
+            classification = self._classify_post_trigger(cumulative, predicted_index)
 
         return GVResult(
             flagged=flagged,
@@ -127,9 +124,9 @@ class GVDetector:
         z_slope = self._robust_z(slope)
         z_curve = self._robust_z(curvature)
 
-        pos_var = np.maximum(z_var, 0)
-        pos_slope = np.maximum(z_slope, 0)
-        pos_curve = np.maximum(z_curve, 0)
+        pos_var = np.maximum(z_var, 0.0)
+        pos_slope = np.maximum(z_slope, 0.0)
+        pos_curve = np.maximum(z_curve, 0.0)
 
         var_term = np.exp(self.alpha_var * pos_var)
 
@@ -139,11 +136,11 @@ class GVDetector:
             + self.alpha_curve * pos_curve
         )
 
-        return np.maximum(raw - 1.0, 0)
+        return np.maximum(raw - 1.0, 0.0)
 
     def _accumulate(self, potential):
         out = np.zeros_like(potential)
-        running = 0
+        running = 0.0
         for i, p in enumerate(potential):
             running = self.cumulative_decay * running + p
             out[i] = running
@@ -154,14 +151,13 @@ class GVDetector:
         if not np.any(above):
             return None
 
-        baseline = np.median(potential) + np.std(potential)
+        baseline = np.median(potential) + 0.75 * np.std(potential)
 
         for i in range(len(cumulative)):
             if not above[i]:
                 continue
 
             recent = potential[max(0, i - self.min_persistence + 1): i + 1]
-
             if len(recent) >= self.min_persistence and np.all(recent > baseline):
                 return i
 
@@ -169,39 +165,27 @@ class GVDetector:
 
     def _classify_post_trigger(self, cumulative, idx):
         trigger_val = cumulative[idx]
-
         end = min(len(cumulative), idx + self.recovery_lookahead)
         post = cumulative[idx:end]
 
         if len(post) < 3:
             return "destabilizing"
 
-        post_peak = np.max(post)
-        post_last = post[-1]
-        post_min = np.min(post[1:])
+        post_peak = float(np.max(post))
+        post_last = float(post[-1])
+        post_min = float(np.min(post[1:]))
 
-        # ----------------------------
-        # TRUE RECOVERY
-        # ----------------------------
         drop = (post_peak - post_min) / (post_peak + self.eps)
 
-        if drop >= self.recovery_drop_ratio and post_last < trigger_val * 0.85:
+        # true recovery requires both a meaningful drop and a clearly lower ending state
+        if drop >= self.recovery_drop_ratio and post_last < trigger_val * 0.80:
             return "recovering"
 
-        # ----------------------------
-        # TRUE DESTABILIZATION
-        # ----------------------------
-
-        # runaway growth
-        if post_last > trigger_val * 1.1:
+        # anything still elevated or rising counts as destabilizing
+        if post_last >= trigger_val * 0.90:
             return "destabilizing"
 
-        # sustained high pressure
-        if post_last >= trigger_val * 0.95:
-            return "destabilizing"
-
-        # no meaningful decay
-        if drop < self.recovery_drop_ratio * 0.75:
+        if post_peak >= trigger_val * 1.05:
             return "destabilizing"
 
         return "recovering"
