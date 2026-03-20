@@ -18,13 +18,11 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Allow running from repo root:
-#   python experiments/exp_02_counterfactual.py
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(CURRENT_DIR)
 if REPO_ROOT not in sys.path:
@@ -39,34 +37,22 @@ def generate_counterfactual_pair(
     noise_std: float = 0.18,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Generate two paired series:
-    - failure_series: early buildup continues into collapse/divergence
-    - recovery_series: similar early buildup but later relaxes and stabilizes
-
-    Design:
-    - shared early segment
-    - branch after midpoint
-    """
     rng = np.random.default_rng(seed)
 
     t = np.arange(n_steps, dtype=float)
 
-    # Shared early buildup: gentle curve + oscillation + noise
     shared = (
         0.015 * t
         + 0.0009 * (t ** 2)
         + 0.20 * np.sin(0.22 * t)
     )
 
-    # Add modest increasing pressure in the first half
     pressure = np.zeros(n_steps, dtype=float)
     half = n_steps // 2
     pressure[:half] = np.linspace(0.0, 2.8, half)
 
     early = shared + pressure
 
-    # Branch A: continued divergence / collapse
     failure = early.copy()
     post_t = np.arange(n_steps - half, dtype=float)
     failure[half:] = (
@@ -77,7 +63,6 @@ def generate_counterfactual_pair(
         + 0.25 * np.sin(0.30 * post_t)
     )
 
-    # Branch B: buildup appears similar, then dissipates / stabilizes
     recovery = early.copy()
     recovery[half:] = (
         recovery[half - 1]
@@ -87,7 +72,6 @@ def generate_counterfactual_pair(
         + 0.22 * np.sin(0.28 * post_t)
     )
 
-    # Add observational noise
     failure += rng.normal(0.0, noise_std, size=n_steps)
     recovery += rng.normal(0.0, noise_std, size=n_steps)
 
@@ -99,18 +83,6 @@ def infer_actual_transition_index(
     mode: str,
     smooth_window: int = 7,
 ) -> int | None:
-    """
-    Rough reference label for plotting/reporting only.
-
-    For failure:
-    - detect when curvature + slope jointly become persistently positive
-      and the tail continues upward strongly
-
-    For recovery:
-    - return None, since we treat it as "no true collapse"
-
-    This is not used by GV itself; it is only a reporting helper.
-    """
     if mode == "recovery":
         return None
 
@@ -141,21 +113,10 @@ def run_one_case(
     series: np.ndarray,
     actual_transition: int | None,
 ) -> Dict[str, Any]:
-    """
-    Run GV and baselines on a single series and print results.
-    """
-    detector = GVDetector(
-        smooth_window=5,
-        variance_window=8,
-        alpha_var=0.25,
-        alpha_slope=0.10,
-        alpha_curve=0.45,
-        cumulative_decay=0.92,
-        threshold=10.5,
-        min_persistence=3,
-        recovery_lookahead=14,
-        recovery_drop_ratio=0.28,
-    )
+    # IMPORTANT:
+    # Use GVDetector defaults from src/gv_detector.py
+    # so tuning there actually affects this experiment.
+    detector = GVDetector()
 
     gv_result = detector.detect(series)
     baselines = run_all_baselines(series)
@@ -163,10 +124,10 @@ def run_one_case(
     print(f"\n=== {name.upper()} ===")
     print("GV")
     print("---------------")
-    print("flagged         :", gv_result.flagged)
-    print("predicted_index :", gv_result.predicted_index)
-    print("classification  :", gv_result.classification)
-    print("trigger_value   :", gv_result.trigger_value)
+    print("flagged          :", gv_result.flagged)
+    print("predicted_index  :", gv_result.predicted_index)
+    print("classification   :", gv_result.classification)
+    print("trigger_value    :", gv_result.trigger_value)
     print("actual_transition:", actual_transition)
 
     print("\nBaselines")
@@ -226,10 +187,6 @@ def summarize_counterfactual(
     failure_result: Dict[str, Any],
     recovery_result: Dict[str, Any],
 ) -> None:
-    """
-    Print a compact summary focused on the question:
-    can GV distinguish collapse vs recovery?
-    """
     f_gv = failure_result["gv"]
     r_gv = recovery_result["gv"]
 
@@ -247,7 +204,7 @@ def summarize_counterfactual(
 
     print("\nInterpretation")
     if f_gv.flagged and f_gv.classification == "destabilizing":
-        print("  - GV identifies genuine buildup leading toward collapse.")
+        print("  - GV DID classify the failure case as destabilizing.")
     else:
         print("  - GV did NOT clearly classify the failure case as destabilizing.")
 
