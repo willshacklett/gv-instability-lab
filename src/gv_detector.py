@@ -119,6 +119,7 @@ class GVDetector:
         mad = np.median(np.abs(x - med)) + self.eps
         return (x - med) / (1.4826 * mad + self.eps)
 
+    # 🔥 UPDATED CORE FUNCTION
     def _compute_potential(self, variance, slope, curvature):
         z_var = self._robust_z(variance)
         z_slope = self._robust_z(slope)
@@ -136,7 +137,8 @@ class GVDetector:
             + self.alpha_curve * pos_curve
         )
 
-        return np.maximum(raw - 1.0, 0.0)
+        # 🔥 KEY FIX: softer suppression so early signals survive
+        return np.maximum(raw - 0.3, 0.0)
 
     def _accumulate(self, potential):
         out = np.zeros_like(potential)
@@ -177,11 +179,9 @@ class GVDetector:
 
         drop = (post_peak - post_min) / (post_peak + self.eps)
 
-        # true recovery requires both a meaningful drop and a clearly lower ending state
         if drop >= self.recovery_drop_ratio and post_last < trigger_val * 0.80:
             return "recovering"
 
-        # anything still elevated or rising counts as destabilizing
         if post_last >= trigger_val * 0.90:
             return "destabilizing"
 
