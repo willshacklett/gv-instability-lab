@@ -173,26 +173,35 @@ class GVDetector:
         end = min(len(cumulative), idx + self.recovery_lookahead)
         post = cumulative[idx:end]
 
-        if len(post) < 2:
+        if len(post) < 3:
             return "destabilizing"
 
         post_peak = np.max(post)
         post_last = post[-1]
         post_min = np.min(post[1:])
 
-        # Recovery check
+        # ----------------------------
+        # TRUE RECOVERY
+        # ----------------------------
         drop = (post_peak - post_min) / (post_peak + self.eps)
-        if drop >= self.recovery_drop_ratio:
+
+        if drop >= self.recovery_drop_ratio and post_last < trigger_val * 0.85:
             return "recovering"
 
-        # NEW: sustained pressure check
-        if len(post) >= 3:
-            sustained = np.mean(post[-3:])
-            if sustained >= trigger_val * 0.95:
-                return "destabilizing"
+        # ----------------------------
+        # TRUE DESTABILIZATION
+        # ----------------------------
 
-        # NEW: still elevated check
-        if post_last >= trigger_val * 0.9:
+        # runaway growth
+        if post_last > trigger_val * 1.1:
+            return "destabilizing"
+
+        # sustained high pressure
+        if post_last >= trigger_val * 0.95:
+            return "destabilizing"
+
+        # no meaningful decay
+        if drop < self.recovery_drop_ratio * 0.75:
             return "destabilizing"
 
         return "recovering"
