@@ -6,10 +6,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Dict, Any
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(CURRENT_DIR)
@@ -24,6 +22,7 @@ def generate_counterfactual_pair(n_steps=140, noise_std=0.18, seed=42):
     rng = np.random.default_rng(seed)
     t = np.arange(n_steps, dtype=float)
 
+    # Shared early buildup
     shared = 0.015 * t + 0.0009 * (t ** 2) + 0.20 * np.sin(0.22 * t)
 
     pressure = np.zeros(n_steps)
@@ -32,23 +31,30 @@ def generate_counterfactual_pair(n_steps=140, noise_std=0.18, seed=42):
 
     early = shared + pressure
 
+    # Failure branch:
+    # Make it diverge sooner and more clearly so irreversible buildup shows up earlier
     failure = early.copy()
-    post = np.arange(n_steps - half)
+    post = np.arange(n_steps - half, dtype=float)
     failure[half:] = (
         failure[half - 1]
-        + 0.10 * post
-        + 0.010 * (post ** 2)
-        + 0.0009 * (post ** 3)
+        + 0.22 * post
+        + 0.020 * (post ** 2)
+        + 0.0015 * (post ** 3)
+        + 0.10 * np.sin(0.18 * post)
     )
 
+    # Recovery branch:
+    # Similar initial feel, but it cools off and stabilizes
     recovery = early.copy()
     recovery[half:] = (
         recovery[half - 1]
-        + 0.13 * post
-        - 0.0075 * (post ** 2)
-        + 0.00008 * (post ** 3)
+        + 0.12 * post
+        - 0.010 * (post ** 2)
+        + 0.00006 * (post ** 3)
+        + 0.18 * np.sin(0.22 * post)
     )
 
+    # Add observational noise
     failure += rng.normal(0, noise_std, n_steps)
     recovery += rng.normal(0, noise_std, n_steps)
 
