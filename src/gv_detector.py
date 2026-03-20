@@ -76,14 +76,14 @@ class GVDetector:
         self,
         smooth_window: int = 5,
         variance_window: int = 8,
-        alpha_var: float = 0.25,
-        alpha_slope: float = 0.10,
-        alpha_curve: float = 0.45,
-        cumulative_decay: float = 0.92,
-        threshold: float = 25.0,
-        min_persistence: int = 3,
-        recovery_lookahead: int = 10,
-        recovery_drop_ratio: float = 0.35,
+        alpha_var: float = 0.35,
+        alpha_slope: float = 0.14,
+        alpha_curve: float = 0.65,
+        cumulative_decay: float = 0.95,
+        threshold: float = 18.0,
+        min_persistence: int = 2,
+        recovery_lookahead: int = 12,
+        recovery_drop_ratio: float = 0.22,
         eps: float = 1e-9,
     ) -> None:
         """
@@ -274,11 +274,12 @@ class GVDetector:
         z_slope = self._robust_z(slope)
         z_curve = self._robust_z(curvature)
 
+        pos_var = np.maximum(z_var, 0.0)
         pos_slope = np.maximum(z_slope, 0.0)
         pos_curve = np.maximum(z_curve, 0.0)
 
         # Exponential variance amplification
-        var_term = np.exp(self.alpha_var * np.maximum(z_var, 0.0))
+        var_term = np.exp(self.alpha_var * pos_var)
 
         # Add weighted geometry terms
         raw_potential = (
@@ -345,8 +346,8 @@ class GVDetector:
         """
         Decide whether the triggered event is destabilizing or recovering.
 
-        If post-trigger cumulative pressure decays enough within the lookahead
-        window, call it recovering. Otherwise call it destabilizing.
+        If pressure decays meaningfully after trigger, call it recovering.
+        If pressure stays elevated or keeps rising, call it destabilizing.
         """
         trigger_val = cumulative_trace[trigger_index]
         if trigger_val <= self.eps:
@@ -359,13 +360,20 @@ class GVDetector:
             return "destabilizing"
 
         post_peak = float(np.max(post))
-        post_min = float(np.min(post[1:])) if len(post) > 1 else float(post_peak)
+        post_last = float(post[-1])
+        post_min_after = float(np.min(post[1:])) if len(post) > 1 else post_last
 
-        # If it meaningfully decays after trigger, treat as recovery
-        drop = (post_peak - post_min) / (post_peak + self.eps)
+        # Recovery test: meaningful decay after peak
+        drop = (post_peak - post_min_after) / (post_peak + self.eps)
         if drop >= self.recovery_drop_ratio:
             return "recovering"
 
+        # Destabilization test: still elevated or rising by the end of the window
+        end_ratio = post_last / (trigger_val + self.eps)
+        if end_ratio >= 1.05:
+            return "destabilizing"
+
+        # Default lean: if it triggered and did not decay enough, treat as destabilizing
         return "destabilizing"
 
 
